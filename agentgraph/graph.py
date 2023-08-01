@@ -32,6 +32,19 @@ class InputNode(Node):
         raise NotImplementedError("InputNodes cannot be executed!")
 
 
+class AggregateNode(Node):
+    """AggregateNode aggregates its input and passes the aggregated result to its function"""
+
+    def __init__(self, name, func, aggregate_func):
+        super().__init__(name, func)
+        self.aggregate_func = aggregate_func
+
+    def execute(self, *argc, **kwargs):
+        # TODO: there is a bug here.  the aggregate fn and the input fn have to have the same signature
+        aggregated = self.aggregate_func(*argc, **kwargs)
+        return super().execute(aggregated)
+
+
 class DAG:
     def __init__(self):
         self.nodes = {}
@@ -62,14 +75,24 @@ class DAG:
 
         # update input mapping
         if arg_name in self.input_mapping[to_node]:
-            raise ValueError(
-                f"Tried to map to {to_node}:{arg_name} from {from_node} but already mapped from {self.input_mapping[to_node][arg_name]}!"
-            )
+            # if to_node is an AggregateNode, append from_node.
+            if isinstance(self.nodes[to_node], AggregateNode):
+                self.input_mapping[to_node][arg_name].append(from_node)
+            else:
+                raise ValueError(
+                    f"Tried to map to {to_node}:{arg_name} from {from_node} but already mapped from {self.input_mapping[to_node][arg_name]}!"
+                )
+        else:
+            # create a list for an AggregateNode, single value for others
+            if isinstance(self.nodes[to_node], AggregateNode):
+                self.input_mapping[to_node][arg_name] = [from_node]
+            else:
+                self.input_mapping[to_node][arg_name] = from_node
+
         if arg_name not in self.nodes[to_node].signature.parameters:
             raise ValueError(
                 f"Argument {arg_name} not in function signature for {to_node}!"
             )
-        self.input_mapping[to_node][arg_name] = from_node
 
         # check for cycles
         visited = set()
@@ -83,24 +106,21 @@ class DAG:
             return any(dfs(next_node) for next_node in self.edges[node])
 
         if dfs(to_node):
-            # Adding this edge created a cycle, so remove it and raise an error
-            self.edges[from_node].remove(to_node)
-            self.inverse_edges[to_node].remove(from_node)
-            self.input_mapping[to_node].pop(arg_name)
             raise ValueError(
-                f"adding edge from {from_node} to {to_node} would create a cycle"
+                f"adding edge from {from_node} to {to_node} created a cycle"
             )
 
     def _execute_node(self, node_name, node_outputs):
         # During parallel execution node_outputs is a copy
         inputs = {}
         for arg_name, input_node in self.input_mapping[node_name].items():
-            try:
+            if isinstance(input_node, list):
+                # AggregateNode
+                inputs[arg_name] = {n: node_outputs[n] for n in input_node}
+            else:
+                # all other nodes
                 inputs[arg_name] = node_outputs[input_node]
-            except KeyError:
-                raise KeyError(
-                    f"Node {node.name} expected input {arg_name} from node {input_node} but it was not provided!"
-                )
+        print(node_name)
         return (node_name, self.nodes[node_name].execute(**inputs))
 
     def execute_parallel(self, input_values=None):
@@ -135,7 +155,7 @@ class DAG:
                     futures[node_name] = input_future
                 else:
                     futures[node_name] = executor.submit(
-                        self._execute_node, node, node_outputs
+                        self._execute_node, node_name, node_outputs
                     )
 
             # loop over futures until all nodes have been executed.

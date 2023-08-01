@@ -1,4 +1,4 @@
-from agentgraph import InputNode, Node, DAG
+from agentgraph import InputNode, Node, DAG, AggregateNode
 
 
 def add(x, y):
@@ -209,6 +209,9 @@ def test_execute_with_input_nodes():
     output = graph.execute({"input1": 7, "input2": 4})
     assert output["add"] == 11, f'Expected 11, got {output["add"]}'
 
+    output = graph.execute_parallel({"input1": 7, "input2": 4})
+    assert output["add"] == 11, f'Expected 11, got {output["add"]}'
+
 
 def test_missing_input_values():
     # Create the graph
@@ -298,3 +301,37 @@ def test_dag_execute_parallel():
     assert finish - start < 2, f"Parallel execution took {finish - start} seconds!"
 
     assert output["sum"] == 8, f'Expected 8, got {output["sum"]}'
+
+
+def test_aggregate_node():
+    # Create the graph
+    graph = DAG()
+
+    # Create the nodes
+    input_node = InputNode("input")
+    work1_node = Node("work1", lambda x: x + 1)
+    work2_node = Node("work2", lambda x: x + 2)
+    work3_node = Node("work3", lambda x: x + 3)
+    aggregate_node = AggregateNode("aggregate", lambda x: x, lambda x: sum(x.values()))
+
+    # Add the nodes to the graph
+    graph.add_node(input_node)
+    graph.add_node(work1_node)
+    graph.add_node(work2_node)
+    graph.add_node(work3_node)
+    graph.add_node(aggregate_node)
+
+    # Add edges between the nodes
+    graph.add_edge("input", "work1", "x")
+    graph.add_edge("input", "work2", "x")
+    graph.add_edge("input", "work3", "x")
+    graph.add_edge("work1", "aggregate", "x")
+    graph.add_edge("work2", "aggregate", "x")
+    graph.add_edge("work3", "aggregate", "x")
+
+    # Execute the graph with input values
+    output = graph.execute({"input": 0})
+    assert output["aggregate"] == 6
+
+    output = graph.execute_parallel({"input": 0})
+    assert output["aggregate"] == 6
