@@ -9,7 +9,7 @@ class Node:
         self.name = name
         self.func = func
 
-    def compute(self, *inputs):
+    def execute(self, *inputs):
         if self.func is not None:
             return self.func(*inputs)
 
@@ -20,9 +20,8 @@ class InputNode(Node):
     def __init__(self, name):
         super().__init__(name, func=None)
 
-    def compute(self):
-        # Just return None, actual input values are provided in the execute call.
-        return None
+    def execute(self):
+        raise NotImplementedError("InputNodes cannot be executed!")
 
 
 class DAG:
@@ -89,7 +88,7 @@ class DAG:
                 node_outputs[node.name] = input_values[node.name]
             else:
                 inputs = [node_outputs[n] for n in self.inverse_edges[node.name]]
-                node_outputs[node.name] = node.compute(*inputs)
+                node_outputs[node.name] = node.execute(*inputs)
 
         return node_outputs
 

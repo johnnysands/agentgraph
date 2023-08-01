@@ -9,9 +9,9 @@ def mul(x, y):
     return x * y
 
 
-def test_node_compute():
+def test_node_execute():
     node = Node("add_node", add)
-    result = node.compute(3, 2)
+    result = node.execute(3, 2)
     assert result == 5
 
 
