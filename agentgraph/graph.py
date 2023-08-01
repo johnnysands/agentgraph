@@ -1,3 +1,5 @@
+import inspect
+
 # The basic idea here is that we can define a computation graph as a set of nodes
 # and edges.  The nodes each process their input and emit their output.  The system
 # routes the output to the downstream nodes.
@@ -8,17 +10,35 @@ class Node:
     def __init__(self, name, func):
         self.name = name
         self.func = func
+        self.signature = inspect.signature(func)
+        self.input_mapping = dict()
 
-    def execute(self, *inputs):
-        if self.func is not None:
-            return self.func(*inputs)
+    def map_input(self, arg_name, node):
+        if arg_name in self.input_mapping:
+            raise ValueError(
+                f"Tried to map to {self.name}:{arg_name} from {node} but already mapped from {self.input_mapping[arg_name]}!"
+            )
+        if arg_name not in self.signature.parameters:
+            raise ValueError(
+                f"Argument {arg_name} not in function signature for {self.name}!"
+            )
+
+        self.input_mapping[arg_name] = node
+
+    def execute(self, *argc, **kwargs):
+        try:
+            return self.func(*argc, **kwargs)
+        except TypeError as e:
+            raise TypeError(
+                f"{self.name} got error calling {self.func.__name__} with args {argc} and kwargs {kwargs}"
+            ) from e
 
 
 class InputNode(Node):
     """InputNodes are supplied with their value at execution time."""
 
     def __init__(self, name):
-        super().__init__(name, func=None)
+        self.name = name
 
     def execute(self):
         raise NotImplementedError("InputNodes cannot be executed!")
@@ -37,12 +57,13 @@ class DAG:
         self.edges[node.name] = []
         self.inverse_edges[node.name] = []
 
-    def add_edge(self, from_node, to_node):
+    def add_edge(self, from_node, to_node, arg_name):
         if from_node not in self.nodes or to_node not in self.nodes:
             raise ValueError("Both nodes must exist within the graph!")
         if to_node not in self.edges[from_node]:
             self.edges[from_node].append(to_node)
             self.inverse_edges[to_node].append(from_node)
+            self.nodes[to_node].map_input(arg_name, from_node)
 
         # check for cycles
         visited = set()
@@ -59,6 +80,7 @@ class DAG:
             # Adding this edge created a cycle, so remove it and raise an error
             self.edges[from_node].remove(to_node)
             self.inverse_edges[to_node].remove(from_node)
+            self.nodes[to_node].input_mapping.pop(arg_name)
             raise ValueError("Adding this edge creates a cycle!")
 
     def execute(self, input_values=None):
@@ -87,22 +109,9 @@ class DAG:
                     raise ValueError(f"Input value not provided for node {node.name}")
                 node_outputs[node.name] = input_values[node.name]
             else:
-                inputs = [node_outputs[n] for n in self.inverse_edges[node.name]]
-                node_outputs[node.name] = node.execute(*inputs)
+                inputs = {}
+                for arg_name, input_node in node.input_mapping.items():
+                    inputs[arg_name] = node_outputs[input_node]
+                node_outputs[node.name] = node.execute(**inputs)
 
         return node_outputs
-
-
-class LinearGraph(DAG):
-    """A linear graph is a DAG where each node has exactly one parent.
-    This can provide a simpler API for defining a graph"""
-
-    def __init__(self):
-        super().__init__()
-        self.last_node = None
-
-    def add_node(self, node):
-        super().add_node(node)
-        if self.last_node is not None:
-            self.add_edge(self.last_node.name, node.name)
-        self.last_node = node

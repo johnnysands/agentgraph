@@ -1,1 +1,1 @@
-from .graph import InputNode, Node, DAG, LinearGraph
+from .graph import InputNode, Node, DAG

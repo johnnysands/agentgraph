@@ -1,4 +1,4 @@
-from agentgraph import InputNode, Node, DAG, LinearGraph
+from agentgraph import InputNode, Node, DAG
 
 
 def add(x, y):
@@ -28,8 +28,17 @@ def test_add_edge_to_dag():
     dag = DAG()
     dag.add_node(node1)
     dag.add_node(node2)
-    dag.add_edge("add_node", "mul_node")
+    dag.add_edge("add_node", "mul_node", "x")
     assert len(dag.edges["add_node"]) == 1
+
+
+def test_dag_input_node():
+    input_node = InputNode("input")
+    dag = DAG()
+    dag.add_node(input_node)
+    assert len(dag.nodes) == 1
+    result = dag.execute({"input": 2})
+    assert result["input"] == 2
 
 
 def test_dag_execution():
@@ -46,14 +55,57 @@ def test_dag_execution():
     graph.add_node(add_node)
     graph.add_node(mul_node)
 
-    graph.add_edge("input1", "add")
-    graph.add_edge("input2", "add")
-    graph.add_edge("add", "mul")
-    graph.add_edge("input2", "mul")
+    graph.add_edge("input1", "add", "x")
+    graph.add_edge("input2", "add", "y")
+    graph.add_edge("add", "mul", "x")
+    graph.add_edge("input2", "mul", "y")
 
     outputs = graph.execute()
 
     assert outputs == {"input1": 2, "input2": 3, "add": 5, "mul": 15}
+
+
+def test_missing_inputs():
+    input_node1 = Node("input1", lambda: 2)
+    input_node2 = Node("input2", lambda: 3)
+    add_node = Node("add", add)
+
+    graph = DAG()
+    graph.add_node(input_node1)
+    graph.add_node(input_node2)
+    graph.add_node(add_node)
+
+    graph.add_edge("input1", "add", "x")
+    # forget the second edge
+
+    try:
+        graph.execute()
+    except TypeError:
+        pass
+    else:
+        raise AssertionError("Should have raised a TypeError!")
+
+
+def test_extra_inputs():
+    input_node1 = Node("input1", lambda: 2)
+    input_node2 = Node("input2", lambda: 3)
+    input_node3 = Node("input3", lambda: 4)
+    add_node = Node("add", add)
+
+    graph = DAG()
+    graph.add_node(input_node1)
+    graph.add_node(input_node2)
+    graph.add_node(input_node3)
+    graph.add_node(add_node)
+
+    graph.add_edge("input1", "add", "x")
+    graph.add_edge("input2", "add", "y")
+    try:
+        graph.add_edge("input3", "add", "z")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Should have raised a ValueError!")
 
 
 def test_dag_cycle_detection():
@@ -67,24 +119,14 @@ def test_dag_cycle_detection():
     dag.add_node(add_node)
     dag.add_node(mul_node)
 
-    dag.add_edge("input", "add")
-    dag.add_edge("add", "mul")
+    dag.add_edge("input", "add", "x")
+    dag.add_edge("add", "mul", "x")
     try:
-        dag.add_edge("mul", "add")
+        dag.add_edge("mul", "add", "y")
     except ValueError:
         pass
     else:
         raise AssertionError("Should have raised a ValueError!")
-
-
-def test_linear_graph():
-    graph = LinearGraph()
-    graph.add_node(Node("input1", lambda: 2))
-    graph.add_node(Node("square", lambda x: x**2))
-    graph.add_node(Node("str", lambda x: str(x)))
-
-    result = graph.execute()
-    assert result == {"input1": 2, "square": 4, "str": "4"}
 
 
 def test_execute_with_input_nodes():
@@ -102,8 +144,8 @@ def test_execute_with_input_nodes():
     graph.add_node(add_node)
 
     # Add edges between the nodes
-    graph.add_edge("input1", "add")
-    graph.add_edge("input2", "add")
+    graph.add_edge("input1", "add", "x")
+    graph.add_edge("input2", "add", "y")
 
     # Execute the graph with input values
     output = graph.execute({"input1": 5, "input2": 3})
@@ -127,7 +169,7 @@ def test_missing_input_values():
     graph.add_node(double_node)
 
     # Add an edge between the nodes
-    graph.add_edge("input", "double")
+    graph.add_edge("input", "double", "x")
 
     # Attempt to execute the graph without providing an input value
     try:
