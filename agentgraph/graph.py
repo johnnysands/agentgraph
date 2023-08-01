@@ -52,7 +52,8 @@ class DAG:
         self.inverse_edges = collections.defaultdict(list)
 
         # input mapping is what helps us map the input from other nodes to the right function arguments.
-        # the format is {node_name: {arg_name: input_node_name}}
+        # the format is {node_name: {arg_name: input_node_name}} where input_node_name is either a single
+        # node name or a list of node names in the case of an AggregateNode.
         self.input_mapping = collections.defaultdict(dict)
 
     def add_node(self, node):
@@ -68,7 +69,7 @@ class DAG:
         # error in the user's code, so we raise an error because I don't think
         # there's a particularly good reason to do this.
         if to_node in self.edges[from_node]:
-            raise ValueError("Edge already exists!")
+            raise ValueError(f"Edge already exists from {from_node} to {to_node}!")
 
         self.edges[from_node].append(to_node)
         self.inverse_edges[to_node].append(from_node)
