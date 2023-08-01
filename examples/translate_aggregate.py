@@ -1,45 +1,10 @@
 """
-This example is just demonstrating the functionality of the execute_parallel method.
-
-Since the graph is a DAG, we can often execute nodes in parallel that do not depend
-on each other.  This is a simple example of how to do that that simply parallelizes
-the execution of a bunch of similar translation calls.
+This example demonstrates the use of an AggregateNode to aggregate the results of a
+set of similar nodes.
 """
 import agentgraph
 import functools
-import openai
-
-
-def completion(input):
-    messages = [
-        {"role": "system", "content": "You assist in translations."},
-        {"role": "user", "content": input},
-    ]
-
-    response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=messages,
-    )
-    return response["choices"][0]["message"]["content"]
-
-
-def translate(language, input):
-    return completion("Translate to " + language + ": " + input)
-
-
-# create a node for each language
-languages = [
-    "Spanish",
-    "Russian",
-    "French",
-    "Italian",
-    "German",
-    "Swedish",
-    "Norwegian",
-    "Danish",
-    "Finnish",
-    "Portugese",
-]
+import util
 
 
 def main():
@@ -47,17 +12,18 @@ def main():
     dag = agentgraph.DAG()
     dag.add_node(agentgraph.InputNode("input"))
 
+    # add the aggregate node, this will be the final node in the graph.
     def aggregate_fn(x):
         output = ""
         for k, v in x.items():
             output += k + ": " + v + "\n"
         return output
 
-    # TODO: there is a bug here.  the aggregate fn and the input fn have to have the same signature
     dag.add_node(agentgraph.AggregateNode("aggregate", lambda x: x, aggregate_fn))
 
-    for language in languages:
-        fn = functools.partial(translate, language)
+    # create a node for each language and connect them to input and aggregate
+    for language in util.languages:
+        fn = functools.partial(util.translate, language)
         dag.add_node(agentgraph.Node(language, fn))
 
         dag.add_edge("input", language, "input")
@@ -65,7 +31,6 @@ def main():
 
     # get the user input and execute the graph
     user_input = input("Enter a message: ")
-
     results = dag.execute_parallel({"input": user_input})
     print(results["aggregate"])
 
