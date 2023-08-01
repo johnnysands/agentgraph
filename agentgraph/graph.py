@@ -121,7 +121,6 @@ class DAG:
             else:
                 # all other nodes
                 inputs[arg_name] = node_outputs[input_node]
-        print(node_name)
         return (node_name, self.nodes[node_name].execute(**inputs))
 
     def execute_parallel(self, input_values=None):
