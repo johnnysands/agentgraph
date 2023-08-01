@@ -18,6 +18,7 @@ class Node:
 
     # map_input is called by the DAG when adding edges to maintain self.input_mapping.
     def map_input(self, arg_name, node):
+        print(arg_name, self.input_mapping)
         if arg_name in self.input_mapping:
             raise ValueError(
                 f"Tried to map to {self.name}:{arg_name} from {node} but already mapped from {self.input_mapping[arg_name]}!"
@@ -65,10 +66,15 @@ class DAG:
         if from_node not in self.nodes or to_node not in self.nodes:
             raise ValueError("Both nodes must exist within the graph!")
 
-        if to_node not in self.edges[from_node]:
-            self.edges[from_node].append(to_node)
-            self.inverse_edges[to_node].append(from_node)
-            self.nodes[to_node].map_input(arg_name, from_node)
+        # strictly speaking this is legal, but it most likely indicates an
+        # error in the user's code, so we raise an error because I don't think
+        # there's a particularly good reason to do this.
+        if to_node in self.edges[from_node]:
+            raise ValueError("Edge already exists!")
+
+        self.edges[from_node].append(to_node)
+        self.inverse_edges[to_node].append(from_node)
+        self.nodes[to_node].map_input(arg_name, from_node)
 
         # check for cycles
         visited = set()

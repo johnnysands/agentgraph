@@ -32,7 +32,6 @@ def test_add_edge_to_dag():
     assert len(dag.edges["add_node"]) == 1
 
 
-
 def test_add_edge_detect_duplicate():
     input_node1 = InputNode("input1")
     input_node2 = InputNode("input2")
@@ -46,6 +45,41 @@ def test_add_edge_detect_duplicate():
     dag.add_edge("input1", "some_node", "x")
     try:
         dag.add_edge("input2", "some_node", "x")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Should have raised a ValueError!")
+
+
+def test_add_edge_detect_duplicate():
+    input_node1 = InputNode("input1")
+    input_node2 = InputNode("input2")
+    some_node = Node("some_node", lambda x: x)
+
+    dag = DAG()
+    dag.add_node(input_node1)
+    dag.add_node(input_node2)
+    dag.add_node(some_node)
+
+    dag.add_edge("input1", "some_node", "x")
+    try:
+        dag.add_edge("input1", "some_node", "x")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Should have raised a ValueError!")
+
+
+def test_add_edge_invalid_input():
+    input_node1 = InputNode("input1")
+    some_node = Node("some_node", lambda x: x)
+
+    dag = DAG()
+    dag.add_node(input_node1)
+    dag.add_node(some_node)
+
+    try:
+        dag.add_edge("input1", "some_node", "z")
     except ValueError:
         pass
     else:
