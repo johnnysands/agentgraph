@@ -1,9 +1,9 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed, Future
 import inspect
 
 # The basic idea here is that we can define a computation graph as a set of nodes
 # and edges.  The nodes each process their input and emit their output.  The system
 # routes the output to the downstream nodes.
-# final nodes in the graph are the outputs of the graph.
 
 
 class Node:
@@ -83,6 +83,80 @@ class DAG:
             self.nodes[to_node].input_mapping.pop(arg_name)
             raise ValueError("Adding this edge creates a cycle!")
 
+    def _execute_node(self, node, node_outputs):
+        # During parallel execution node_outputs is a copy
+
+        inputs = {}
+        for arg_name, input_node in node.input_mapping.items():
+            try:
+                inputs[arg_name] = node_outputs[input_node]
+            except KeyError:
+                raise KeyError(
+                    f"Node {node.name} expected input {arg_name} from node {input_node} but it was not provided!"
+                )
+        return (node.name, node.execute(**inputs))
+
+    def execute_parallel(self, input_values=None):
+        # Compute the values from inputs to outputs.
+        node_outputs = {}
+
+        with ThreadPoolExecutor() as executor:
+            # Count the number of dependencies for each node
+            num_dependencies = {
+                node_name: len(self.inverse_edges[node_name])
+                for node_name in self.nodes
+            }
+
+            # We use the futures to track which nodes have just completed execution,
+            # and then we decrement the dependency count for each of their children.
+            futures = {}
+
+            # Run all nodes with zero dependencies.
+            for node_name, count in num_dependencies.items():
+                if count > 0:
+                    continue
+
+                node = self.nodes[node_name]
+                if isinstance(node, InputNode):
+                    if input_values is None or node_name not in input_values:
+                        raise ValueError(
+                            f"Input value not provided for node {node.name}"
+                        )
+                    # Create a completed future that immediately returns the input value
+                    input_future = Future()
+                    input_future.set_result((node_name, input_values[node_name]))
+                    futures[node_name] = input_future
+                else:
+                    futures[node_name] = executor.submit(
+                        self._execute_node, self.nodes[node], node_outputs
+                    )
+
+            # loop over futures until all nodes have been executed.
+            # futures will always have at least one element until all work is done.
+            # this is because as soon as a future completes, we decrement the dependency
+            # counts and enqueue futures for any new jobs that are ready to run.
+            while futures:
+                for future in as_completed(futures.values()):
+                    # record results
+                    node_name, result = future.result()
+                    node_outputs[node_name] = result
+
+                    # update dependency counts and enqueue new futures
+                    for dependent_node_name in self.edges[node_name]:
+                        num_dependencies[dependent_node_name] -= 1
+
+                        # is the node ready to run?
+                        if num_dependencies[dependent_node_name] == 0:
+                            futures[dependent_node_name] = executor.submit(
+                                self._execute_node,
+                                self.nodes[dependent_node_name],
+                                node_outputs,
+                            )
+
+                    # remove this node from the futures list
+                    del futures[node_name]
+        return node_outputs
+
     def execute(self, input_values=None):
         # Perform topological sort
         visited = set()
@@ -109,9 +183,7 @@ class DAG:
                     raise ValueError(f"Input value not provided for node {node.name}")
                 node_outputs[node.name] = input_values[node.name]
             else:
-                inputs = {}
-                for arg_name, input_node in node.input_mapping.items():
-                    inputs[arg_name] = node_outputs[input_node]
-                node_outputs[node.name] = node.execute(**inputs)
+                _, output = self._execute_node(node, node_outputs)
+                node_outputs[node.name] = output
 
         return node_outputs

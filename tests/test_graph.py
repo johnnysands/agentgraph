@@ -184,3 +184,63 @@ def test_missing_input_values():
     # Now provide an input value and ensure it works correctly
     output = graph.execute({"input": 7})
     assert output["double"] == 14, f'Expected 14, got {output["double"]}'
+
+
+def test_dag_execute_parallel():
+    import time
+
+    def slow_job(x):
+        time.sleep(1)
+        return x
+
+    input_node = InputNode("input")
+    slow_node1 = Node("slow1", slow_job)
+    slow_node2 = Node("slow2", slow_job)
+    slow_node3 = Node("slow3", slow_job)
+    slow_node4 = Node("slow4", slow_job)
+    slow_node5 = Node("slow5", slow_job)
+    slow_node6 = Node("slow6", slow_job)
+    slow_node7 = Node("slow7", slow_job)
+    slow_node8 = Node("slow8", slow_job)
+
+    def big_sum(a, b, c, d, e, f, g, h):
+        return a + b + c + d + e + f + g + h
+
+    big_sum_node = Node("sum", big_sum)
+
+    graph = DAG()
+    graph.add_node(input_node)
+    graph.add_node(slow_node1)
+    graph.add_node(slow_node2)
+    graph.add_node(slow_node3)
+    graph.add_node(slow_node4)
+    graph.add_node(slow_node5)
+    graph.add_node(slow_node6)
+    graph.add_node(slow_node7)
+    graph.add_node(slow_node8)
+    graph.add_node(big_sum_node)
+
+    graph.add_edge("input", "slow1", "x")
+    graph.add_edge("input", "slow2", "x")
+    graph.add_edge("input", "slow3", "x")
+    graph.add_edge("input", "slow4", "x")
+    graph.add_edge("input", "slow5", "x")
+    graph.add_edge("input", "slow6", "x")
+    graph.add_edge("input", "slow7", "x")
+    graph.add_edge("input", "slow8", "x")
+
+    graph.add_edge("slow1", "sum", "a")
+    graph.add_edge("slow2", "sum", "b")
+    graph.add_edge("slow3", "sum", "c")
+    graph.add_edge("slow4", "sum", "d")
+    graph.add_edge("slow5", "sum", "e")
+    graph.add_edge("slow6", "sum", "f")
+    graph.add_edge("slow7", "sum", "g")
+    graph.add_edge("slow8", "sum", "h")
+
+    start = time.time()
+    output = graph.execute_parallel({"input": 1})
+    finish = time.time()
+    assert finish - start < 2, f"Parallel execution took {finish - start} seconds!"
+
+    assert output["sum"] == 8, f'Expected 8, got {output["sum"]}'
