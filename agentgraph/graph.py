@@ -11,8 +11,12 @@ class Node:
         self.name = name
         self.func = func
         self.signature = inspect.signature(func)
+
+        # input mapping is what helps us map the input from other nodes to the right function arguments.
+        # the format is {arg_name: node_name}
         self.input_mapping = dict()
 
+    # map_input is called by the DAG when adding edges to maintain self.input_mapping.
     def map_input(self, arg_name, node):
         if arg_name in self.input_mapping:
             raise ValueError(
@@ -60,6 +64,7 @@ class DAG:
     def add_edge(self, from_node, to_node, arg_name):
         if from_node not in self.nodes or to_node not in self.nodes:
             raise ValueError("Both nodes must exist within the graph!")
+
         if to_node not in self.edges[from_node]:
             self.edges[from_node].append(to_node)
             self.inverse_edges[to_node].append(from_node)
@@ -81,7 +86,9 @@ class DAG:
             self.edges[from_node].remove(to_node)
             self.inverse_edges[to_node].remove(from_node)
             self.nodes[to_node].input_mapping.pop(arg_name)
-            raise ValueError("Adding this edge creates a cycle!")
+            raise ValueError(
+                f"adding edge from {from_node} to {to_node} would create a cycle"
+            )
 
     def _execute_node(self, node, node_outputs):
         # During parallel execution node_outputs is a copy
