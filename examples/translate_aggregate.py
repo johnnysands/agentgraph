@@ -11,6 +11,8 @@ def main():
     # create graph and top level input node
     dag = agentgraph.DAG()
     dag.add_node(agentgraph.InputNode("input"))
+    dag.add_node(agentgraph.Node("output", lambda x, y: f"Translate: {x}\n\n{y}"))
+    dag.add_edge("input", "output", "x")
 
     # add the aggregate node, this will be the final node in the graph.
     def aggregate_fn(x):
@@ -20,6 +22,7 @@ def main():
         return output
 
     dag.add_node(agentgraph.AggregateNode("aggregate", lambda x: x, aggregate_fn))
+    dag.add_edge("aggregate", "output", "y")
 
     # create a node for each language and connect them to input and aggregate
     for language in util.languages:
@@ -32,7 +35,9 @@ def main():
     # get the user input and execute the graph
     user_input = input("Enter a message: ")
     results = dag.execute_parallel({"input": user_input})
-    print(results["aggregate"])
+
+    print()
+    print(results["output"])
 
 
 if __name__ == "__main__":
