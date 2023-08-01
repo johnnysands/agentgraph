@@ -1,3 +1,4 @@
+import collections
 from concurrent.futures import ThreadPoolExecutor, as_completed, Future
 import inspect
 
@@ -34,23 +35,17 @@ class InputNode(Node):
 class DAG:
     def __init__(self):
         self.nodes = {}
-        self.edges = {}
-        self.inverse_edges = {}  # lookup from node to parents
+        self.edges = collections.defaultdict(list)
+        self.inverse_edges = collections.defaultdict(list)
 
         # input mapping is what helps us map the input from other nodes to the right function arguments.
-        # the format is {arg_name: node_name}
-        self.input_mapping = {}
+        # the format is {node_name: {arg_name: input_node_name}}
+        self.input_mapping = collections.defaultdict(dict)
 
     def add_node(self, node):
         if node.name in self.nodes:
             raise ValueError("Node with name {} already exists!".format(node.name))
         self.nodes[node.name] = node
-        self.edges[node.name] = []
-        self.inverse_edges[node.name] = []
-
-        # input mapping maps output from an edge to an argument name in a node's
-        # function when executed.
-        self.input_mapping[node.name] = dict()
 
     def add_edge(self, from_node, to_node, arg_name):
         if from_node not in self.nodes or to_node not in self.nodes:
@@ -98,7 +93,6 @@ class DAG:
 
     def _execute_node(self, node_name, node_outputs):
         # During parallel execution node_outputs is a copy
-        node = self.nodes[node_name]
         inputs = {}
         for arg_name, input_node in self.input_mapping[node_name].items():
             try:
@@ -107,7 +101,7 @@ class DAG:
                 raise KeyError(
                     f"Node {node.name} expected input {arg_name} from node {input_node} but it was not provided!"
                 )
-        return (node_name, node.execute(**inputs))
+        return (node_name, self.nodes[node_name].execute(**inputs))
 
     def execute_parallel(self, input_values=None):
         # Compute the values from inputs to outputs.
