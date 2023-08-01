@@ -12,24 +12,6 @@ class Node:
         self.func = func
         self.signature = inspect.signature(func)
 
-        # input mapping is what helps us map the input from other nodes to the right function arguments.
-        # the format is {arg_name: node_name}
-        self.input_mapping = dict()
-
-    # map_input is called by the DAG when adding edges to maintain self.input_mapping.
-    def map_input(self, arg_name, node):
-        print(arg_name, self.input_mapping)
-        if arg_name in self.input_mapping:
-            raise ValueError(
-                f"Tried to map to {self.name}:{arg_name} from {node} but already mapped from {self.input_mapping[arg_name]}!"
-            )
-        if arg_name not in self.signature.parameters:
-            raise ValueError(
-                f"Argument {arg_name} not in function signature for {self.name}!"
-            )
-
-        self.input_mapping[arg_name] = node
-
     def execute(self, *argc, **kwargs):
         try:
             return self.func(*argc, **kwargs)
@@ -55,12 +37,20 @@ class DAG:
         self.edges = {}
         self.inverse_edges = {}  # lookup from node to parents
 
+        # input mapping is what helps us map the input from other nodes to the right function arguments.
+        # the format is {arg_name: node_name}
+        self.input_mapping = {}
+
     def add_node(self, node):
         if node.name in self.nodes:
             raise ValueError("Node with name {} already exists!".format(node.name))
         self.nodes[node.name] = node
         self.edges[node.name] = []
         self.inverse_edges[node.name] = []
+
+        # input mapping maps output from an edge to an argument name in a node's
+        # function when executed.
+        self.input_mapping[node.name] = dict()
 
     def add_edge(self, from_node, to_node, arg_name):
         if from_node not in self.nodes or to_node not in self.nodes:
@@ -74,7 +64,17 @@ class DAG:
 
         self.edges[from_node].append(to_node)
         self.inverse_edges[to_node].append(from_node)
-        self.nodes[to_node].map_input(arg_name, from_node)
+
+        # update input mapping
+        if arg_name in self.input_mapping[to_node]:
+            raise ValueError(
+                f"Tried to map to {to_node}:{arg_name} from {from_node} but already mapped from {self.input_mapping[to_node][arg_name]}!"
+            )
+        if arg_name not in self.nodes[to_node].signature.parameters:
+            raise ValueError(
+                f"Argument {arg_name} not in function signature for {to_node}!"
+            )
+        self.input_mapping[to_node][arg_name] = from_node
 
         # check for cycles
         visited = set()
@@ -91,23 +91,23 @@ class DAG:
             # Adding this edge created a cycle, so remove it and raise an error
             self.edges[from_node].remove(to_node)
             self.inverse_edges[to_node].remove(from_node)
-            self.nodes[to_node].input_mapping.pop(arg_name)
+            self.input_mapping[to_node].pop(arg_name)
             raise ValueError(
                 f"adding edge from {from_node} to {to_node} would create a cycle"
             )
 
-    def _execute_node(self, node, node_outputs):
+    def _execute_node(self, node_name, node_outputs):
         # During parallel execution node_outputs is a copy
-
+        node = self.nodes[node_name]
         inputs = {}
-        for arg_name, input_node in node.input_mapping.items():
+        for arg_name, input_node in self.input_mapping[node_name].items():
             try:
                 inputs[arg_name] = node_outputs[input_node]
             except KeyError:
                 raise KeyError(
                     f"Node {node.name} expected input {arg_name} from node {input_node} but it was not provided!"
                 )
-        return (node.name, node.execute(**inputs))
+        return (node_name, node.execute(**inputs))
 
     def execute_parallel(self, input_values=None):
         # Compute the values from inputs to outputs.
@@ -141,7 +141,7 @@ class DAG:
                     futures[node_name] = input_future
                 else:
                     futures[node_name] = executor.submit(
-                        self._execute_node, self.nodes[node], node_outputs
+                        self._execute_node, node, node_outputs
                     )
 
             # loop over futures until all nodes have been executed.
@@ -162,7 +162,7 @@ class DAG:
                         if num_dependencies[dependent_node_name] == 0:
                             futures[dependent_node_name] = executor.submit(
                                 self._execute_node,
-                                self.nodes[dependent_node_name],
+                                dependent_node_name,
                                 node_outputs,
                             )
 
@@ -196,7 +196,7 @@ class DAG:
                     raise ValueError(f"Input value not provided for node {node.name}")
                 node_outputs[node.name] = input_values[node.name]
             else:
-                _, output = self._execute_node(node, node_outputs)
+                _, output = self._execute_node(node.name, node_outputs)
                 node_outputs[node.name] = output
 
         return node_outputs
