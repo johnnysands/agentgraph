@@ -48,7 +48,9 @@ class AggregateNode(Node):
 class DAG:
     def __init__(self):
         self.nodes = {}
+        # list of edges, each edge is a tuple (from_node, to_node, arg_name)
         self.edges = collections.defaultdict(list)
+        # inverse list of edges for cycle detection
         self.inverse_edges = collections.defaultdict(list)
 
         # input mapping is what helps us map the input from other nodes to the right function arguments.
@@ -204,13 +206,98 @@ class DAG:
 
         # Compute the values from inputs to outputs.
         node_outputs = {}
+        if input_values is not None:
+            # validate that input is provided for all nodes without input edges
+            for node_name in self.nodes:
+                if node_name in self.inverse_edges:
+                    # validate that each node with an incoming edge has no input values
+                    if node_name in input_values:
+                        raise ValueError(
+                            f"Input value provided for node {node_name} with input edges"
+                        )
+                else:
+                    # validate that each node without an incoming edge has an input value
+                    if node_name not in input_values:
+                        raise ValueError(
+                            f"Input value not provided for node {node_name}"
+                        )
+            for node_name, value in input_values.items():
+                node_outputs[node_name] = value
+
+        # Run all nodes in post order
         for node in post_order:
             if isinstance(node, InputNode):
-                if input_values is None or node.name not in input_values:
-                    raise ValueError(f"Input value not provided for node {node.name}")
-                node_outputs[node.name] = input_values[node.name]
+                pass
             else:
                 _, output = self._execute_node(node.name, node_outputs)
                 node_outputs[node.name] = output
 
         return node_outputs
+
+
+class SimpleGraph:
+    """A wrapper for DAG that makes it easier to define a graph.
+
+    Functions are added to the graph, and the edges are defined automatically by
+    looking at the name of the functions and the name of the inputs to the functions.
+
+    Example:
+
+        def embedding(query):
+            ...
+
+        def similar_documents(embedding):
+            ...
+
+        def completion(query, similar_documents):
+            ...
+
+        def safety_check(query, completion, similar_documents):
+            ...
+
+        def log(query, completion, safety_check):
+            ...
+
+        graph = SimpleGraph()
+        graph.add_functions([embedding, similar_documents, completion, safety_check, log])
+        graph.execute_parallel({"query": "Hello world!"})
+    """
+
+    def __init__(self):
+        self.dag = DAG()
+        self.prepared = False
+
+    def add_function(self, function):
+        if self.prepared:
+            raise ValueError("Cannot add functions after graph has been prepared!")
+        node = Node(function.__name__, function)
+        self.dag.add_node(node)
+
+    def add_functions(self, functions):
+        for function in functions:
+            self.add_function(function)
+
+    def _create_edges(self):
+        for node in self.dag.nodes:
+            if isinstance(self.dag.nodes[node], InputNode):
+                continue
+            for arg in self.dag.nodes[node].signature.parameters:
+                if arg in self.dag.nodes:
+                    self.dag.add_edge(arg, node, arg)
+
+    def _execute_prep(self, input_values=None):
+        if not self.prepared:
+            for node_name in input_values.keys():
+                self.dag.add_node(InputNode(node_name))
+
+            self._create_edges()
+            self.prepared = True
+
+    def execute(self, input_values=None):
+        self._execute_prep(input_values)
+        print(self.dag.edges)
+        return self.dag.execute(input_values)
+
+    def execute_parallel(self, input_values=None):
+        self._execute_prep(input_values)
+        return self.dag.execute_parallel(input_values)

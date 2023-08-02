@@ -1,1 +1,1 @@
-from .graph import InputNode, Node, DAG, AggregateNode
+from .graph import InputNode, Node, DAG, AggregateNode, SimpleGraph

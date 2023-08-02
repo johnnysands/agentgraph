@@ -1,4 +1,4 @@
-from agentgraph import InputNode, Node, DAG, AggregateNode
+from agentgraph import InputNode, Node, DAG, AggregateNode, SimpleGraph
 
 
 def add(x, y):
@@ -335,3 +335,26 @@ def test_aggregate_node():
 
     output = graph.execute_parallel({"input": 0})
     assert output["aggregate"] == 6
+
+
+def test_simple_graph():
+    def upper(input):
+        return input.upper()
+
+    def doubler(upper):
+        return upper + upper
+
+    def tripler(input):
+        return input + input + input
+
+    def joiner(doubler, tripler):
+        return doubler + tripler
+
+    graph = SimpleGraph()
+    graph.add_functions([upper, doubler, tripler, joiner])
+
+    output = graph.execute({"input": "hello"})
+    assert output["joiner"] == "HELLOHELLOhellohellohello"
+
+    output = graph.execute_parallel({"input": "hello"})
+    assert output["joiner"] == "HELLOHELLOhellohellohello"
