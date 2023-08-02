@@ -54,3 +54,19 @@ def test_template_function_graph_two_inputs():
     graph.add_template_function("format", "Hello {input1} {input2}!")
     output = graph.execute({"input1": "world", "input2": "again"})
     assert output["format"] == "Hello world again!"
+
+
+def test_template_function_mixed():
+    graph = SimpleGraph()
+
+    def upper(input1):
+        return input1.upper()
+
+    def lower(input2):
+        return input2.lower()
+
+    graph.add_functions([lower, upper])
+    graph.add_template_function("greeting", "{upper} {lower}!")
+
+    output = graph.execute({"input1": "hello", "input2": "WORLD"})
+    assert output["greeting"] == "HELLO world!"
