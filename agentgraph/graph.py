@@ -96,7 +96,7 @@ class DAG:
             # and then we decrement the dependency count for each of their children.
             futures = {}
 
-            # Count the number of dependencies for each node
+            # Number of unexecuted nodes that each node depends on.
             dependencies = {
                 node_name: len(self.inverse_edges[node_name])
                 for node_name in self.nodes
@@ -109,8 +109,6 @@ class DAG:
                     continue
 
                 if isinstance(self.nodes[node_name], InputNode):
-                    # Create a completed future that immediately returns the input value
-                    # This feels unnecessary and can maybe be simplified.
                     input_future = Future()
                     input_future.set_result((node_name, input_values[node_name]))
                     futures[node_name] = input_future
@@ -119,7 +117,7 @@ class DAG:
                         self._execute_node, node_name, node_outputs
                     )
 
-            # loop over futures until all nodes have been executed.
+            # loop over futures until list it is empty.
             # futures will always have at least one element until all work is done.
             # this is because as soon as a future completes, we decrement the dependency
             # counts and enqueue futures for any new nodes that are ready to run.
