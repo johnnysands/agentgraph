@@ -1,13 +1,39 @@
+"""AgentGraph is a library for building computation graphs to enable complex multi-stage
+processing of input. It is designed to be used in situations where you have a set of
+functions that you want to execute in parallel, and then aggregate the results of those
+functions into a single output, such as a chatbot that uses a multi-stage process for
+generating responses.
+
+To use AgentGraph there are two interfaces: SimpleGraph and DAG.  SimpleGraph is a wrapper
+around DAG that makes it easier to define a graph.  DAG is the core class that implements
+the computation graph.
+
+Node names are used to identify nodes in the graph.  Node names must be unique within the
+graph.
+"""
+
 import collections
 from concurrent.futures import ThreadPoolExecutor, as_completed, Future
 import inspect
 
-# The basic idea here is that we can define a computation graph as a set of nodes
-# and edges.  The nodes each process their input and emit their output.  The system
-# routes the output to the downstream nodes.
-
 
 class Node:
+    """Node is the core class that represents a node in the computation graph.
+
+    Nodes are created by passing a function to the constructor.  The function must have
+    a signature that matches the inputs to the node.  The function can return any value,
+    and that value will be passed to the next node in the graph.
+
+    Example:
+        def static_fn(): # always returns the same value
+            return "Hello world!"
+
+        dag = DAG()
+        dag.add_node(Node("static", static_fn))
+        output = dag.execute()
+        assert output["static"] == "Hello world!"
+    """
+
     def __init__(self, name, func):
         self.name = name
         self.func = func
@@ -23,7 +49,20 @@ class Node:
 
 
 class InputNode(Node):
-    """InputNodes are supplied with their value at execution time."""
+    """InputNodes are how input is injected into the computation graph.
+
+    They are essentially placeholder nodes.  Their value at computation time is
+    determined by the input_values dictionary passed to DAG.execute().
+
+    Example:
+        dag = DAG()
+        dag.add_node(InputNode("input"))
+        dag.add_node(Node("output", lambda x: x * 2))
+        dag.add_edge("input", "output", "x")
+
+        output = dag.execute({"input": 2})
+        assert output["output"] == 4
+    """
 
     def __init__(self, name):
         self.name = name
@@ -33,7 +72,33 @@ class InputNode(Node):
 
 
 class AggregateNode(Node):
-    """AggregateNode aggregates its input and passes the aggregated result to its function"""
+    """AggregateNode receives multiple inputs in a single value.  It's purpose is as a convenience
+    when joining many related streams together.  It accomplishes this by defining an aggregate_func
+    in addition to the normal processing_func.  the aggregate_func aggregates the values, and its output
+    is then passed to the processing func.
+
+    There is a design limitation that needs to be fixed here, which is that the aggregate_func and the
+    processing_func have to have the same signature.
+
+    Example:
+        def aggregate_fn(x):
+            return sum(x)
+
+        def processing_fn(x):
+            return x * 2
+
+        dag = DAG()
+        dag.add_node(InputNode("input"))
+        dag.add_node(InputNode("input2"))
+        dag.add_node(InputNode("input3"))
+        dag.add_node(AggregateNode("aggregate", processing_fn, aggregate_fn))
+
+        dag.add_edge("input", "aggregate", "x")
+        dag.add_edge("input2", "aggregate", "x")
+        dag.add_edge("input3", "aggregate", "x")
+
+        dag.execute({"input": 1, "input2": 2, "input3": 3})
+        assert dag.nodes["aggregate"].output == 12"""
 
     def __init__(self, name, func, aggregate_func):
         super().__init__(name, func)
@@ -41,21 +106,37 @@ class AggregateNode(Node):
 
     def execute(self, *argc, **kwargs):
         # TODO: there is a bug here.  the aggregate fn and the input fn have to have the same signature
+        # Maybe the aggregate function should be eliminated and we should only provide a processing function
+        # that only performs the aggregation?
         aggregated = self.aggregate_func(*argc, **kwargs)
         return super().execute(aggregated)
 
 
 class DAG:
+    """DAG is the core class that represents a computation graph.
+
+    Nodes are added to the graph using add_node().  Edges are added using add_edge().
+    The execute() method is used to execute the graph.  It takes an optional input_values
+    dictionary that is used to populate the values for any InputNode's in the graph. The
+    output of the graph is a dictionary returned by the execute() method which contains the
+    output of each node in the graph, keyed by the node name.
+    """
+
     def __init__(self):
+        # TODO this should be refactored.  edges originally were just node-to-node mappings,
+        # but we started mapping to arguments as well, but we're keeping track of arguments
+        # seperately in input_mapping. Probably this should just be a list of 3-tuples or something.
         self.nodes = {}
-        # list of edges, each edge is a tuple (from_node, to_node, arg_name)
+        # list of edges: {from_node: [to_node, to_node, ...]}
         self.edges = collections.defaultdict(list)
-        # inverse list of edges for cycle detection
+        # inverse list of edges for cycle detection and dependency counting
+        # {to_node: [from_node, from_node, ...]}
         self.inverse_edges = collections.defaultdict(list)
 
         # input mapping is what helps us map the input from other nodes to the right function arguments.
         # the format is {node_name: {arg_name: input_node_name}} where input_node_name is either a single
         # node name or a list of node names in the case of an AggregateNode.
+        # the output of input_node_name is passed to the function argument arg_name for node_name.
         self.input_mapping = collections.defaultdict(dict)
 
     def add_node(self, node):
@@ -67,9 +148,9 @@ class DAG:
         if from_node not in self.nodes or to_node not in self.nodes:
             raise ValueError("Both nodes must exist within the graph!")
 
-        # strictly speaking this is legal, but it most likely indicates an
+        # strictly speaking wecould allow this, but it most likely indicates an
         # error in the user's code, so we raise an error because I don't think
-        # there's a particularly good reason to do this.
+        # there's a situation where you would really need to do this.
         if to_node in self.edges[from_node]:
             raise ValueError(f"Edge already exists from {from_node} to {to_node}!")
 
@@ -126,7 +207,6 @@ class DAG:
         return (node_name, self.nodes[node_name].execute(**inputs))
 
     def execute_parallel(self, input_values=None):
-        # Compute the values from inputs to outputs.
         node_outputs = {}
 
         with ThreadPoolExecutor() as executor:
