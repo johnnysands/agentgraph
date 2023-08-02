@@ -91,14 +91,18 @@ def test_dag_input_node():
     dag = DAG()
     dag.add_node(input_node)
     assert len(dag.nodes) == 1
+
     result = dag.execute({"input": 2})
+    assert result["input"] == 2
+
+    result = dag.execute_parallel({"input": 2})
     assert result["input"] == 2
 
 
 def test_dag_execution():
     # create nodes
-    input_node1 = Node("input1", lambda: 2)
-    input_node2 = Node("input2", lambda: 3)
+    input_node1 = InputNode("input1")
+    input_node2 = InputNode("input2")
     add_node = Node("add", add)
     mul_node = Node("mul", mul)
 
@@ -114,14 +118,16 @@ def test_dag_execution():
     graph.add_edge("add", "mul", "x")
     graph.add_edge("input2", "mul", "y")
 
-    outputs = graph.execute()
+    outputs = graph.execute({"input1": 2, "input2": 3})
+    assert outputs == {"input1": 2, "input2": 3, "add": 5, "mul": 15}
 
+    outputs = graph.execute_parallel({"input1": 2, "input2": 3})
     assert outputs == {"input1": 2, "input2": 3, "add": 5, "mul": 15}
 
 
-def test_missing_inputs():
-    input_node1 = Node("input1", lambda: 2)
-    input_node2 = Node("input2", lambda: 3)
+def test_missing_edge():
+    input_node1 = InputNode("input1")
+    input_node2 = InputNode("input2")
     add_node = Node("add", add)
 
     graph = DAG()
@@ -130,20 +136,79 @@ def test_missing_inputs():
     graph.add_node(add_node)
 
     graph.add_edge("input1", "add", "x")
-    # forget the second edge
+    # forget the second edge to add y
 
     try:
-        graph.execute()
+        graph.execute({"input1": 2, "input2": 3})
+    except TypeError:
+        pass
+    else:
+        raise AssertionError("Should have raised a TypeError!")
+
+    try:
+        graph.execute_parallel({"input1": 2, "input2": 3})
     except TypeError:
         pass
     else:
         raise AssertionError("Should have raised a TypeError!")
 
 
-def test_extra_inputs():
-    input_node1 = Node("input1", lambda: 2)
-    input_node2 = Node("input2", lambda: 3)
-    input_node3 = Node("input3", lambda: 4)
+def test_missing_input():
+    input_node1 = InputNode("input1")
+    input_node2 = InputNode("input2")
+    add_node = Node("add", add)
+
+    graph = DAG()
+    graph.add_node(input_node1)
+    graph.add_node(input_node2)
+    graph.add_node(add_node)
+
+    graph.add_edge("input1", "add", "x")
+    graph.add_edge("input2", "add", "y")
+
+    inputs = {"input1": 2}  # skip input2
+
+    try:
+        graph.execute(inputs)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Should have raised a ValueError!")
+
+    try:
+        graph.execute_parallel(inputs)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Should have raised a ValueError!")
+
+
+def test_extra_input():
+    input_node1 = InputNode("input1")
+
+    graph = DAG()
+    graph.add_node(input_node1)
+    inputs = {"input1": 2, "input2": 3}
+
+    try:
+        graph.execute(inputs)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Should have raised a ValueError!")
+
+    try:
+        graph.execute_parallel(inputs)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Should have raised a ValueError!")
+
+
+def test_mismatched_edge():
+    input_node1 = InputNode("input1")
+    input_node2 = InputNode("input2")
+    input_node3 = InputNode("input3")
     add_node = Node("add", add)
 
     graph = DAG()
@@ -232,9 +297,7 @@ def test_missing_input_values():
     try:
         graph.execute({})
     except ValueError as e:
-        assert (
-            str(e) == "Input value not provided for node input"
-        ), f"Unexpected error message: {str(e)}"
+        pass
     else:
         raise AssertionError("Should have raised a ValueError!")
 

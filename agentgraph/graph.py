@@ -148,16 +148,16 @@ class DAG:
         if from_node not in self.nodes or to_node not in self.nodes:
             raise ValueError("Both nodes must exist within the graph!")
 
-        # strictly speaking wecould allow this, but it most likely indicates an
+        # strictly speaking we could allow this, but it most likely indicates an
         # error in the user's code, so we raise an error because I don't think
         # there's a situation where you would really need to do this.
         if to_node in self.edges[from_node]:
             raise ValueError(f"Edge already exists from {from_node} to {to_node}!")
 
+        # update the edges and input mapping
         self.edges[from_node].append(to_node)
         self.inverse_edges[to_node].append(from_node)
 
-        # update input mapping
         if arg_name in self.input_mapping[to_node]:
             # if to_node is an AggregateNode, append from_node.
             if isinstance(self.nodes[to_node], AggregateNode):
@@ -178,24 +178,11 @@ class DAG:
                 f"Argument {arg_name} not in function signature for {to_node}!"
             )
 
-        # check for cycles
-        visited = set()
-
-        def dfs(node):
-            if node == from_node:
-                return True
-            if node in visited:
-                return False
-            visited.add(node)
-            return any(dfs(next_node) for next_node in self.edges[node])
-
-        if dfs(to_node):
-            raise ValueError(
-                f"adding edge from {from_node} to {to_node} created a cycle"
-            )
+        # verify that the graph is still valid
+        self._cycle_check(to_node)
 
     def _execute_node(self, node_name, node_outputs):
-        # During parallel execution node_outputs is a copy
+        # Note: During parallel execution node_outputs is a copy and so should not be modified.
         inputs = {}
         for arg_name, input_node in self.input_mapping[node_name].items():
             if isinstance(input_node, list):
@@ -206,32 +193,56 @@ class DAG:
                 inputs[arg_name] = node_outputs[input_node]
         return (node_name, self.nodes[node_name].execute(**inputs))
 
-    def execute_parallel(self, input_values=None):
+    def execute(self, input_values):
+        """Execute the graph.
+
+        Args:
+            input_values: A dictionary of input values for the graph.  The keys are the
+                node names, and the values are the input values for the nodes.  Provide
+                an empty dictionary if there are no input values.
+        """
+        self._validate_input_values(input_values)
+
+        # Compute the values from inputs to outputs.
         node_outputs = {}
+        for node_name, value in input_values.items():
+            node_outputs[node_name] = value
 
+        # Run all nodes in post order
+        post_order = self._topological_sort(self.nodes)
+        for node in post_order:
+            if isinstance(node, InputNode):
+                pass
+            else:
+                _, output = self._execute_node(node.name, node_outputs)
+                node_outputs[node.name] = output
+
+        return node_outputs
+
+    def execute_parallel(self, input_values=None):
+        self._validate_input_values(input_values)
+
+        node_outputs = {}
         with ThreadPoolExecutor() as executor:
-            # Count the number of dependencies for each node
-            num_dependencies = {
-                node_name: len(self.inverse_edges[node_name])
-                for node_name in self.nodes
-            }
-
             # We use the futures to track which nodes have just completed execution,
             # and then we decrement the dependency count for each of their children.
             futures = {}
 
-            # Run all nodes with zero dependencies.
-            for node_name, count in num_dependencies.items():
+            # Count the number of dependencies for each node
+            dependencies = {
+                node_name: len(self.inverse_edges[node_name])
+                for node_name in self.nodes
+            }
+
+            # Run all nodes with zero dependencies, and populate the futures list
+            # with initial values.
+            for node_name, count in dependencies.items():
                 if count > 0:
                     continue
 
-                node = self.nodes[node_name]
-                if isinstance(node, InputNode):
-                    if input_values is None or node_name not in input_values:
-                        raise ValueError(
-                            f"Input value not provided for node {node.name}"
-                        )
+                if isinstance(self.nodes[node_name], InputNode):
                     # Create a completed future that immediately returns the input value
+                    # This feels unnecessary and can maybe be simplified.
                     input_future = Future()
                     input_future.set_result((node_name, input_values[node_name]))
                     futures[node_name] = input_future
@@ -243,7 +254,7 @@ class DAG:
             # loop over futures until all nodes have been executed.
             # futures will always have at least one element until all work is done.
             # this is because as soon as a future completes, we decrement the dependency
-            # counts and enqueue futures for any new jobs that are ready to run.
+            # counts and enqueue futures for any new nodes that are ready to run.
             while futures:
                 for future in as_completed(futures.values()):
                     # record results
@@ -252,10 +263,10 @@ class DAG:
 
                     # update dependency counts and enqueue new futures
                     for dependent_node_name in self.edges[node_name]:
-                        num_dependencies[dependent_node_name] -= 1
+                        dependencies[dependent_node_name] -= 1
 
                         # is the node ready to run?
-                        if num_dependencies[dependent_node_name] == 0:
+                        if dependencies[dependent_node_name] == 0:
                             futures[dependent_node_name] = executor.submit(
                                 self._execute_node,
                                 dependent_node_name,
@@ -266,8 +277,21 @@ class DAG:
                     del futures[node_name]
         return node_outputs
 
-    def execute(self, input_values=None):
-        # Perform topological sort
+    def _cycle_check(self, node_name):
+        # Perform cycle check
+        visited = set()
+
+        def dfs(node_name):
+            if node_name in visited:
+                return True
+            visited.add(node_name)
+            return any(dfs(next_node) for next_node in self.edges[node_name])
+
+        if dfs(node_name):
+            raise ValueError(f"Cycle in graph for {node_name}")
+
+    def _topological_sort(self, nodes):
+        # determine the order in which to execute the nodes
         visited = set()
         post_order = []
 
@@ -278,41 +302,37 @@ class DAG:
                     dfs(child_name)
             post_order.append(self.nodes[node_name])
 
-        for node_name in self.nodes:
+        for node_name in nodes:
             if node_name not in visited:
                 dfs(node_name)
 
         post_order = list(reversed(post_order))
+        return post_order
 
-        # Compute the values from inputs to outputs.
-        node_outputs = {}
-        if input_values is not None:
-            # validate that input is provided for all nodes without input edges
-            for node_name in self.nodes:
-                if node_name in self.inverse_edges:
-                    # validate that each node with an incoming edge has no input values
-                    if node_name in input_values:
-                        raise ValueError(
-                            f"Input value provided for node {node_name} with input edges"
-                        )
+    def _validate_input_values(self, input_values):
+        for node_name in input_values:
+            if node_name not in self.nodes:
+                raise ValueError(f"Input value provided for unknown node {node_name}")
+
+        # validate that input is provided for all nodes without input edges
+        for node_name in self.nodes:
+            if node_name in input_values:
+                if not isinstance(self.nodes[node_name], InputNode):
+                    raise ValueError(
+                        f"Input value provided for non-input node {node_name}"
+                    )
+                elif node_name in self.inverse_edges:
+                    # this check might be redundant
+                    raise ValueError(
+                        f"Input value provided for node {node_name} with input edges"
+                    )
+            elif node_name not in self.inverse_edges:
+                if isinstance(self.nodes[node_name], InputNode):
+                    raise ValueError(f"No input value provided for node {node_name}")
                 else:
-                    # validate that each node without an incoming edge has an input value
-                    if node_name not in input_values:
-                        raise ValueError(
-                            f"Input value not provided for node {node_name}"
-                        )
-            for node_name, value in input_values.items():
-                node_outputs[node_name] = value
-
-        # Run all nodes in post order
-        for node in post_order:
-            if isinstance(node, InputNode):
-                pass
-            else:
-                _, output = self._execute_node(node.name, node_outputs)
-                node_outputs[node.name] = output
-
-        return node_outputs
+                    raise ValueError(
+                        f"{node_name} has no incoming edge and is not an input node"
+                    )
 
 
 class SimpleGraph:
