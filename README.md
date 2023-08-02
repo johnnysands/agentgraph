@@ -1,17 +1,35 @@
 # AgentGraph
 
 Agent Graph is a generic execution framework to execute a DAG of dependent computations.  It supports
-parallel execution and has both a full featured and simplified API.
+parallel execution and has two APIs: a simpler, more limited option called SimpleGraph, and a full
+featured option called DAG.
 
 ## SimpleGraph
 
-A wrapper for DAG that makes it easier to define a graph.
+High level simple wrapper that makes it as easy as possible to define a graph, but
+at the cost of some flexibility.
 
-Functions are added to the graph, and the edges are defined automatically by
-looking at the name of the functions and the name of the inputs to the functions.
+Define functions, and add them to the graph.  The edges are defined automatically by
+matching the names of functions with the names of arguments of other functions.  Whatever
+a function returns is automatically routed to the input of any downstream function.
 
+Here's a simple example:
 
-Example:
+```python
+def upper(text):
+    return text.upper()
+
+def double(upper):
+    return upper + upper
+
+graph = SimpleGraph()
+graph.add_functions([upper, double])
+output = graph.execute({"text": "Hello"})
+print(output["double"]) # outputs "HELLOHELLO"
+```
+
+Here's a more involved example that gives an idea of how the library might be used with a chat agent.
+
 ```python
 def embedding(query):
     ...
@@ -38,7 +56,7 @@ output = graph.execute_parallel({"query": "Hello world!"})
 print(output["final"])
 ```
 
-There is also a decorator form for adding functions to SimpleGraph.
+Functions can also be added to SimpleGraph with a decorator.
 
 ```python
 graph = SimpleGraph()
@@ -51,14 +69,16 @@ output = graph.execute_parallel({"query": "Hello world!"})
 ```
 
 ## DAG
-DAG is the core computation graph class.
+DAG is the core computation graph class. SimpleGraph wraps DAG, and hides much of
+the complexity, but if you need more flexibility or control, you can use DAG directly.
 
-Nodes are added to the graph using add_node().  Edges are added using add_edge().
+Node types are defined in agentgraph.node, and are added to the graph using add_node().
+Edges are added to the graph using add_edge().
 
-execute() or execute_parallel() are called to execute the graph.  InputNodes in the
-graph are seeded with initial values from input_values.  The output of the graph is
-returned from the execute call, and consists of a dictionary with the output of
-each node, keyed by node name.
+execute() or execute_parallel() are used to execute the graph.  InputNodes in the
+graph are seeded with initial values from the input_values argument to the execute
+functions.  The output of the graph is returned from the execute call, and consists
+of a dictionary with the output of each node, keyed by node name.
 
 Example:
 ```python
@@ -71,5 +91,6 @@ output = dag.execute({"input": 2})
 assert output["output"] == 4
 ```
 
-There are also AggregationNodes which can be used to join together similar computations
-and process the results at one time.  See translate_aggregate.py under examples for usage.
+AggregationNodes can be used to join together similar computations and process the
+results at one time.  This is mostly useful to simplify the code that needs to be written
+when building a graph.  See translate_aggregate.py under examples for usage.
