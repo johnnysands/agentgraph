@@ -358,3 +358,14 @@ def test_simple_graph():
 
     output = graph.execute_parallel({"input": "hello"})
     assert output["joiner"] == "HELLOHELLOhellohellohello"
+
+
+def test_simple_graph_decorator():
+    graph = SimpleGraph()
+
+    @graph.add_function
+    def upper(input):
+        return input.upper()
+
+    output = graph.execute({"input": "hello"})
+    assert output["upper"] == "HELLO"

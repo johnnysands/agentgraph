@@ -272,6 +272,7 @@ class SimpleGraph:
             raise ValueError("Cannot add functions after graph has been prepared!")
         node = Node(function.__name__, function)
         self.dag.add_node(node)
+        return function
 
     def add_functions(self, functions):
         for function in functions:
