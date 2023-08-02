@@ -432,3 +432,21 @@ def test_simple_graph_decorator():
 
     output = graph.execute({"input": "hello"})
     assert output["upper"] == "HELLO"
+
+
+def test_repeated_execution():
+    graph = SimpleGraph()
+
+    @graph.add_function
+    def upper(input):
+        return input.upper()
+
+    output = graph.execute({"input": "hello"})
+    assert output["upper"] == "HELLO"
+    output = graph.execute({"input": "hello"})
+    assert output["upper"] == "HELLO"
+
+    output = graph.execute_parallel({"input": "hello"})
+    assert output["upper"] == "HELLO"
+    output = graph.execute_parallel({"input": "hello"})
+    assert output["upper"] == "HELLO"
