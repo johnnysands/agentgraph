@@ -191,7 +191,7 @@ class DAG:
                     raise ValueError(
                         f"Input value provided for non-input node {node_name}"
                     )
-                elif node_name in self.inverse_edges:
+                elif self.inverse_edges[node_name]:
                     # this check might be redundant
                     raise ValueError(
                         f"Input value provided for node {node_name} with input edges"
