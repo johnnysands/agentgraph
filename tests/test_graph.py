@@ -29,7 +29,7 @@ def test_add_edge_to_dag():
     dag.add_node(node1)
     dag.add_node(node2)
     dag.add_edge("add_node", "mul_node", "x")
-    assert len(dag.edges["add_node"]) == 1
+    assert len(dag.edges) == 1
 
 
 def test_add_edge_detect_duplicate():

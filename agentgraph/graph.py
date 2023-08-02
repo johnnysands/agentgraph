@@ -14,21 +14,11 @@ class DAG:
     """
 
     def __init__(self):
-        # TODO this should be refactored.  edges originally were just node-to-node mappings,
-        # but we started mapping to arguments as well, but we're keeping track of arguments
-        # seperately in input_mapping. Probably this should just be a list of 3-tuples or something.
         self.nodes = {}
-        # list of edges: {from_node: [to_node, to_node, ...]}
-        self.edges = collections.defaultdict(list)
+        self.edges = []
         # inverse list of edges for cycle detection and dependency counting
         # {to_node: [from_node, from_node, ...]}
         self.inverse_edges = collections.defaultdict(list)
-
-        # input mapping is what helps us map the input from other nodes to the right function arguments.
-        # the format is {node_name: {arg_name: input_node_name}} where input_node_name is either a single
-        # node name or a list of node names in the case of an AggregateNode.
-        # the output of input_node_name is passed to the function argument arg_name for node_name.
-        self.input_mapping = collections.defaultdict(dict)
 
     def add_node(self, node):
         if node.name in self.nodes:
@@ -39,49 +29,31 @@ class DAG:
         if from_node not in self.nodes or to_node not in self.nodes:
             raise ValueError("Both nodes must exist within the graph!")
 
-        # strictly speaking we could allow this, but it most likely indicates an
-        # error in the user's code, so we raise an error because I don't think
-        # there's a situation where you would really need to do this.
-        if to_node in self.edges[from_node]:
+        if any(edge[0] == from_node and edge[1] == to_node for edge in self.edges):
             raise ValueError(f"Edge already exists from {from_node} to {to_node}!")
-
-        # update the edges and input mapping
-        self.edges[from_node].append(to_node)
-        self.inverse_edges[to_node].append(from_node)
-
-        if arg_name in self.input_mapping[to_node]:
-            # if to_node is an AggregateNode, append from_node.
-            if isinstance(self.nodes[to_node], AggregateNode):
-                self.input_mapping[to_node][arg_name].append(from_node)
-            else:
-                raise ValueError(
-                    f"Tried to map to {to_node}:{arg_name} from {from_node} but already mapped from {self.input_mapping[to_node][arg_name]}!"
-                )
-        else:
-            # create a list for an AggregateNode, single value for others
-            if isinstance(self.nodes[to_node], AggregateNode):
-                self.input_mapping[to_node][arg_name] = [from_node]
-            else:
-                self.input_mapping[to_node][arg_name] = from_node
 
         if arg_name not in self.nodes[to_node].signature.parameters:
             raise ValueError(
                 f"Argument {arg_name} not in function signature for {to_node}!"
             )
 
-        # verify that the graph is still valid
+        self.edges.append((from_node, to_node, arg_name))
+        self.inverse_edges[to_node].append(from_node)
         self._cycle_check(to_node)
 
     def _execute_node(self, node_name, node_outputs):
         # Note: During parallel execution node_outputs is a copy and so should not be modified.
         inputs = {}
-        for arg_name, input_node in self.input_mapping[node_name].items():
-            if isinstance(input_node, list):
-                # AggregateNode
-                inputs[arg_name] = {n: node_outputs[n] for n in input_node}
+
+        for from_node, to_node, arg_name in self.edges:
+            if to_node is not node_name:
+                continue
+            if isinstance(self.nodes[to_node], AggregateNode):
+                if arg_name not in inputs:
+                    inputs[arg_name] = {}
+                inputs[arg_name][from_node] = node_outputs[from_node]
             else:
-                # all other nodes
-                inputs[arg_name] = node_outputs[input_node]
+                inputs[arg_name] = node_outputs[from_node]
         return (node_name, self.nodes[node_name].execute(**inputs))
 
     def execute(self, input_values):
@@ -153,7 +125,9 @@ class DAG:
                     node_outputs[node_name] = result
 
                     # update dependency counts and enqueue new futures
-                    for dependent_node_name in self.edges[node_name]:
+                    for _, dependent_node_name, _ in [
+                        edge for edge in self.edges if edge[0] == node_name
+                    ]:
                         dependencies[dependent_node_name] -= 1
 
                         # is the node ready to run?
@@ -176,7 +150,7 @@ class DAG:
             if node_name in visited:
                 return True
             visited.add(node_name)
-            return any(dfs(next_node) for next_node in self.edges[node_name])
+            return any(dfs(edge[1]) for edge in self.edges if edge[0] == node_name)
 
         if dfs(node_name):
             raise ValueError(f"Cycle in graph for {node_name}")
@@ -188,9 +162,9 @@ class DAG:
 
         def dfs(node_name):
             visited.add(node_name)
-            for child_name in self.edges[node_name]:
-                if child_name not in visited:
-                    dfs(child_name)
+            for edge in self.edges:
+                if edge[0] == node_name and edge[1] not in visited:
+                    dfs(edge[1])
             post_order.append(self.nodes[node_name])
 
         for node_name in nodes:
@@ -287,7 +261,6 @@ class SimpleGraph:
 
     def execute(self, input_values=None):
         self._execute_prep(input_values)
-        print(self.dag.edges)
         return self.dag.execute(input_values)
 
     def execute_parallel(self, input_values=None):
