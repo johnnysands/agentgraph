@@ -2,6 +2,8 @@ import collections
 from concurrent.futures import ThreadPoolExecutor, as_completed, Future
 from .node import Node, InputNode, AggregateNode
 
+Edge = collections.namedtuple("Edge", ["from_node", "to_node", "arg_name"])
+
 
 class DAG:
     """DAG is the core class that represents a computation graph.
@@ -29,7 +31,10 @@ class DAG:
         if from_node not in self.nodes or to_node not in self.nodes:
             raise ValueError("Both nodes must exist within the graph!")
 
-        if any(edge[0] == from_node and edge[1] == to_node for edge in self.edges):
+        if any(
+            edge.from_node == from_node and edge.to_node == to_node
+            for edge in self.edges
+        ):
             raise ValueError(f"Edge already exists from {from_node} to {to_node}!")
 
         if arg_name not in self.nodes[to_node].signature.parameters:
@@ -37,7 +42,7 @@ class DAG:
                 f"Argument {arg_name} not in function signature for {to_node}!"
             )
 
-        self.edges.append((from_node, to_node, arg_name))
+        self.edges.append(Edge(from_node, to_node, arg_name))
         self.inverse_edges[to_node].append(from_node)
         self._cycle_check(to_node)
 
@@ -45,15 +50,15 @@ class DAG:
         # Note: During parallel execution node_outputs is a copy and so should not be modified.
         inputs = {}
 
-        for from_node, to_node, arg_name in self.edges:
-            if to_node is not node_name:
+        for edge in self.edges:
+            if edge.to_node is not node_name:
                 continue
-            if isinstance(self.nodes[to_node], AggregateNode):
-                if arg_name not in inputs:
-                    inputs[arg_name] = {}
-                inputs[arg_name][from_node] = node_outputs[from_node]
+            if isinstance(self.nodes[edge.to_node], AggregateNode):
+                if edge.arg_name not in inputs:
+                    inputs[edge.arg_name] = {}
+                inputs[edge.arg_name][edge.from_node] = node_outputs[edge.from_node]
             else:
-                inputs[arg_name] = node_outputs[from_node]
+                inputs[edge.arg_name] = node_outputs[edge.from_node]
         return (node_name, self.nodes[node_name].execute(**inputs))
 
     def execute(self, input_values):
@@ -126,7 +131,7 @@ class DAG:
 
                     # update dependency counts and enqueue new futures
                     for _, dependent_node_name, _ in [
-                        edge for edge in self.edges if edge[0] == node_name
+                        edge for edge in self.edges if edge.from_node == node_name
                     ]:
                         dependencies[dependent_node_name] -= 1
 
@@ -150,7 +155,9 @@ class DAG:
             if node_name in visited:
                 return True
             visited.add(node_name)
-            return any(dfs(edge[1]) for edge in self.edges if edge[0] == node_name)
+            return any(
+                dfs(edge.to_node) for edge in self.edges if edge.from_node == node_name
+            )
 
         if dfs(node_name):
             raise ValueError(f"Cycle in graph for {node_name}")
@@ -163,8 +170,8 @@ class DAG:
         def dfs(node_name):
             visited.add(node_name)
             for edge in self.edges:
-                if edge[0] == node_name and edge[1] not in visited:
-                    dfs(edge[1])
+                if edge.from_node == node_name and edge.to_node not in visited:
+                    dfs(edge.to_node)
             post_order.append(self.nodes[node_name])
 
         for node_name in nodes:
