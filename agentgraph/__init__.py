@@ -14,4 +14,4 @@ graph.
 
 from .graph import DAG, SimpleGraph
 from .node import Node, InputNode, AggregateNode
-from .function import make_template_function
+from .function import template_function, template_function_with_handler

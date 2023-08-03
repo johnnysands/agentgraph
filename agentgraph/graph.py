@@ -1,7 +1,7 @@
 import collections
 from concurrent.futures import ThreadPoolExecutor, as_completed, Future
 from .node import Node, InputNode, AggregateNode
-from .function import make_template_function
+from .function import template_function, template_function_with_handler
 
 Edge = collections.namedtuple("Edge", ["from_node", "to_node", "arg_name"])
 
@@ -246,7 +246,12 @@ class SimpleGraph:
         return function
 
     def add_template_function(self, name, format_string):
-        return self.add_function(make_template_function(name, format_string))
+        return self.add_function(template_function(name, format_string))
+
+    def add_template_function_with_handler(self, name, format_string, handler):
+        return self.add_function(
+            template_function_with_handler(name, format_string, handler)
+        )
 
     def add_functions(self, functions):
         for function in functions:

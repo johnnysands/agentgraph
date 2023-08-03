@@ -1,30 +1,30 @@
-from agentgraph import make_template_function, SimpleGraph
+from agentgraph import template_function, template_function_with_handler, SimpleGraph
 
 
-def test_make_template_function():
+def test_template_function():
     template = "Hello {name}!"
-    func = make_template_function("some_name", template)
+    func = template_function("some_name", template)
     assert func(name="world") == "Hello world!"
     assert func("world") == "Hello world!"
     assert func.__name__ == "some_name"
 
 
-def test_make_template_function_no_args():
+def test_template_function_no_args():
     template = "Hello world!"
-    func = make_template_function("some_name", template)
+    func = template_function("some_name", template)
     assert func() == "Hello world!"
 
 
-def test_make_template_function_two_args():
+def test_template_function_two_args():
     template = "{greeting} {name}!"
-    func = make_template_function("some_name", template)
+    func = template_function("some_name", template)
     assert func(greeting="Hello", name="world") == "Hello world!"
     assert func("Hello", "world") == "Hello world!"
 
 
-def test_make_template_function_no_args_with_args():
+def test_template_function_no_args_with_args():
     template = "Hello {name}!"
-    func = make_template_function("some_name", template)
+    func = template_function("some_name", template)
     try:
         func()
     except TypeError:
@@ -33,9 +33,9 @@ def test_make_template_function_no_args_with_args():
         raise AssertionError("Expected TypeError")
 
 
-def test_make_template_function_repeats():
+def test_template_function_repeats():
     template = "Hello {name}! {name}!"
-    func = make_template_function("some_name", template)
+    func = template_function("some_name", template)
     assert func(name="world") == "Hello world! world!"
     assert func("world") == "Hello world! world!"
 
@@ -70,3 +70,36 @@ def test_template_function_mixed():
 
     output = graph.execute({"input1": "hello", "input2": "WORLD"})
     assert output["greeting"] == "HELLO world!"
+
+
+def test_template_function_with_handler():
+    def handler(expanded_template):
+        return expanded_template.upper()
+
+    template = "Hello {name}!"
+    func = template_function_with_handler("some_name", handler, template)
+    assert func(name="world") == "HELLO WORLD!"
+    assert func("world") == "HELLO WORLD!"
+    assert func.__name__ == "some_name"
+
+
+def test_template_function_with_handler_no_args():
+    def handler(expanded_template):
+        return expanded_template.upper()
+
+    template = "Hello world!"
+    func = template_function_with_handler("some_name", handler, template)
+    assert func() == "HELLO WORLD!"
+
+
+def test_add_template_function_with_handler():
+    graph = SimpleGraph()
+
+    def handler(expanded_template):
+        return expanded_template.upper()
+
+    graph.add_template_function_with_handler(
+        "format", handler, "Hello {input} {input2}!"
+    )
+    output = graph.execute({"input": "world", "input2": "again"})
+    assert output["format"] == "HELLO WORLD AGAIN!"
