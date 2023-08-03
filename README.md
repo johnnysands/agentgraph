@@ -1,8 +1,8 @@
 # AgentGraph
 
-Agent Graph is a generic execution framework to execute a DAG of dependent computations.  It supports
-parallel execution and has two APIs: a simpler, more limited option called SimpleGraph, and a full
-featured option called DAG.
+Agent Graph is an experimental execution framework that aims to support the development of
+automated agents. It provides a computation graph that supports parallel execution.  It comes with
+two APIs: a simpler, more limited option called SimpleGraph, and the full featured DAG API.
 
 ## SimpleGraph
 
